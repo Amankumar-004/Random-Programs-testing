@@ -1,0 +1,114 @@
+import streamlit as st
+import socket
+import threading
+
+st.set_page_config(page_title="Local WiFi Chat", layout="centered")
+st.title("🗨️ Local WiFi Chat")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "server_thread" not in st.session_state:
+    st.session_state.server_thread = None
+if "client_socket" not in st.session_state:
+    st.session_state.client_socket = None
+if "server_socket" not in st.session_state:
+    st.session_state.server_socket = None
+if "connected" not in st.session_state:
+    st.session_state.connected = False
+if "mode" not in st.session_state:
+    st.session_state.mode = None
+
+def start_server(host, port):
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.bind((host, port))
+    server_sock.listen(1)
+    st.session_state.server_socket = server_sock
+    st.session_state.messages.append(("system", f"Server started at {host}:{port}. Waiting for connection..."))
+    conn, addr = server_sock.accept()
+    st.session_state.client_socket = conn
+    st.session_state.connected = True
+    st.session_state.messages.append(("system", f"Connected to {addr[0]}:{addr[1]}"))
+    while True:
+        try:
+            data = conn.recv(1024)
+            if not data:
+                break
+            st.session_state.messages.append(("peer", data.decode()))
+            st.experimental_rerun()
+        except:
+            break
+    conn.close()
+    server_sock.close()
+    st.session_state.connected = False
+    st.session_state.messages.append(("system", "Connection closed."))
+
+def start_client(host, port):
+    client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client_sock.connect((host, port))
+        st.session_state.client_socket = client_sock
+        st.session_state.connected = True
+        st.session_state.messages.append(("system", f"Connected to server {host}:{port}"))
+        while True:
+            try:
+                data = client_sock.recv(1024)
+                if not data:
+                    break
+                st.session_state.messages.append(("peer", data.decode()))
+                st.experimental_rerun()
+            except:
+                break
+        client_sock.close()
+        st.session_state.connected = False
+        st.session_state.messages.append(("system", "Connection closed."))
+    except Exception as e:
+        st.session_state.messages.append(("system", f"Failed to connect: {e}"))
+
+def send_message(msg):
+    if st.session_state.client_socket and st.session_state.connected:
+        try:
+            st.session_state.client_socket.send(msg.encode())
+            st.session_state.messages.append(("me", msg))
+        except Exception as e:
+            st.session_state.messages.append(("system", f"Send failed: {e}"))
+    else:
+        st.session_state.messages.append(("system", "Not connected."))
+
+with st.sidebar:
+    st.header("Connection Setup")
+    mode = st.radio("Choose mode", ["Host (Server)", "Join (Client)"])
+    host = st.text_input("Host IP", value=socket.gethostbyname(socket.gethostname()) if mode == "Host (Server)" else "")
+    port = st.number_input("Port", min_value=1024, max_value=65535, value=5000, step=1)
+    if st.button("Start"):
+        st.session_state.mode = mode
+        if mode == "Host (Server)":
+            if not st.session_state.server_thread or not st.session_state.server_thread.is_alive():
+                t = threading.Thread(target=start_server, args=(host, int(port)), daemon=True)
+                t.start()
+                st.session_state.server_thread = t
+        else:
+            if not st.session_state.server_thread or not st.session_state.server_thread.is_alive():
+                t = threading.Thread(target=start_client, args=(host, int(port)), daemon=True)
+                t.start()
+                st.session_state.server_thread = t
+
+st.write("---")
+st.subheader("Chat")
+
+for sender, msg in st.session_state.messages:
+    if sender == "me":
+        st.markdown(f"<div style='text-align:right;color:blue'><b>You:</b> {msg}</div>", unsafe_allow_html=True)
+    elif sender == "peer":
+        st.markdown(f"<div style='text-align:left;color:green'><b>Peer:</b> {msg}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div style='text-align:center;color:gray'><i>{msg}</i></div>", unsafe_allow_html=True)
+
+if st.session_state.connected:
+    msg = st.text_input("Type your message", key="msg_input")
+    if st.button("Send"):
+        if msg.strip():
+            send_message(msg.strip())
+            st.session_state["msg_input"] = ""
+else:
+    st.info("Not connected. Set up a connection in the sidebar.")
