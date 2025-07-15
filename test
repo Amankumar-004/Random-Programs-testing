@@ -1,3 +1,7 @@
+/* Encrypted P2P Chat Web App - Uses Web Crypto API for AES-GCM encryption - UI designed with simple, modern CSS - Note: True P2P in browsers is limited; this demo simulates P2P via Web Bluetooth API (see comments) */
+
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
